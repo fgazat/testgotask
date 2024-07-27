@@ -1,0 +1,51 @@
+version: '3.8'
+services:
+  postgres:
+    container_name: container-pg
+    image: postgres
+    hostname: localhost
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: test_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  nats:
+    image: nats
+    ports:
+      - '8222:8222'
+    command: '--cluster_name NATS --cluster nats://0.0.0.0:6222 --http_port 8222'
+    networks: ['nats']
+
+  zookeeper:
+    image: wurstmeister/zookeeper:latest
+    ports:
+      - '2181:2181'
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    ports:
+      - '9092:9092'
+    expose:
+      - '9093'
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: INSIDE://kafka:9093,OUTSIDE://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_LISTENERS: INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INSIDE
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: 'user-created:1:1'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  nats:
+    name: nats
+  app-tier:
+    driver: bridge
+volumes:
+  postgres-data:
