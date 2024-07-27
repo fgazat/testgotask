@@ -40,7 +40,7 @@ func main() {
 				fmt.Printf("Error receiving message: %v\n", err)
 				continue
 			}
-			msg.Respond([]byte("go fuck off"))
+			msg.Respond([]byte("hello my friend"))
 
 			// Print the message
 			fmt.Printf("Received message: %s\n", string(msg.Data))
