@@ -4,14 +4,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/segmentio/kafka-go"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal(err)
-	}
+    log.Println("hello")
 	dbHost := os.Getenv("DB_HOST")
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASS")

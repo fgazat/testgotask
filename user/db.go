@@ -2,8 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
+	"log"
 
-	"github.com/fgazat/testgotask/db"
 	_ "github.com/lib/pq"
 )
 
@@ -22,11 +23,23 @@ func NewStore(
 	dbhost string,
 	dbport string,
 ) (*PostgresStore, error) {
-	pgDB, err := db.New(dbname, dbuser, dbpassword, dbhost, dbport)
+	connString := fmt.Sprintf(
+		"user=%s password=%s dbname=%s host=%s port=%s sslmode=disable",
+		dbuser,
+		dbpassword,
+		dbname,
+		dbhost,
+		dbport,
+	)
+	log.Println(connString)
+	db, err := sql.Open("postgres", connString)
 	if err != nil {
 		return nil, err
 	}
-	return &PostgresStore{DB: pgDB}, nil
+	if err = db.Ping(); err != nil {
+		return nil, err
+	}
+	return &PostgresStore{DB: db}, nil
 }
 
 func (p *PostgresStore) CreateUser(user *User) error {
