@@ -56,7 +56,6 @@ func (s *APIServer) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// send to kafkaj
 	if err := s.sendUserCreatedEvent(user); err != nil {
 		log.Println(err)
 		http.Error(w, "Can't finish creating user", http.StatusInternalServerError)
