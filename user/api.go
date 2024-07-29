@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -19,16 +17,22 @@ import (
 
 type APIServer struct {
 	listenAddr string
-	store      Storage
+	db         *sql.DB
 	kafka      *kafka.Writer
 	nastConn   *nats.Conn
 }
 
-func NewAPIServer(listenAddr string, store Storage, kafkaWriter *kafka.Writer) *APIServer {
+func NewAPIServer(
+	listenAddr string,
+	db *sql.DB,
+	kafkaWriter *kafka.Writer,
+	natsConn *nats.Conn,
+) *APIServer {
 	return &APIServer{
 		listenAddr: listenAddr,
-		store:      store,
+		db:         db,
 		kafka:      kafkaWriter,
+		nastConn:   natsConn,
 	}
 }
 
@@ -40,62 +44,64 @@ func (s *APIServer) Run() {
 }
 
 func (s *APIServer) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Unable to read request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
 	var user User
-	if err := json.Unmarshal(body, &user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	user.CreatedAt = time.Now()
 	user.UserID = uuid.New()
-
-	if err := s.store.CreateUser(&user); err != nil {
-		log.Printf("can't create user in db: %v", err)
+	if err := s.createUser(r.Context(), &user); err != nil {
+		log.Printf("can't create user: %v", err)
 		http.Error(w, "Can't create user", http.StatusInternalServerError)
 		return
 	}
-
-	if err := s.sendUserCreatedEvent(user); err != nil {
-		log.Printf("can't send event to kafka: %v", err)
-		http.Error(w, "Can't finish creating user", http.StatusInternalServerError)
-		return
-	}
-
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Request processed successfully\n"))
 }
 
-func (s *APIServer) sendUserCreatedEvent(user User) error {
+func (s *APIServer) createUser(ctx context.Context, user *User) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO "user" (
+    user_id, email, created_at
+) VALUES (
+    $1, $2, $3
+);`, user.UserID, user.Email, user.CreatedAt)
+	if err != nil {
+		return err
+	}
+
 	message, err := json.Marshal(user)
 	if err != nil {
 		return fmt.Errorf("marshaling failed : %v", err)
 	}
 	msg := kafka.Message{Value: message}
-	if err := s.kafka.WriteMessages(context.Background(), msg); err != nil {
+	if err := s.kafka.WriteMessages(ctx, msg); err != nil {
 		return fmt.Errorf("can't send to kafka: %v", err)
 	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (s *APIServer) HandleBalance(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Unable to read request body", http.StatusBadRequest)
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
-	var user *User
-	if err = json.Unmarshal(body, &user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-	user, err = s.store.GetUserByEmail(user.Email)
+	err := s.db.QueryRow(`SELECT user_id, created_at 
+FROM "user"
+WHERE email = $1;`, user.Email).Scan(
+		&user.UserID, &user.CreatedAt,
+	)
 	if err != nil {
 		log.Printf("err while getting user: %v", err)
 		if err == sql.ErrNoRows {
@@ -112,24 +118,22 @@ func (s *APIServer) HandleBalance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
 	respSring := string(resp.Data)
 	if strings.HasPrefix(respSring, "error") {
 		log.Printf("err on transaction service site: %s\n", respSring)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
 	OkResp := map[string]string{
 		"email":   user.Email,
 		"balance": respSring,
 	}
-	w.WriteHeader(http.StatusOK)
-	data, err := json.Marshal(OkResp)
+	jsonData, err := json.Marshal(OkResp)
 	if err != nil {
 		log.Printf("err marshalling result: %v\n", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, "Failed to encode json", http.StatusInternalServerError)
 		return
 	}
-	w.Write(data)
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
 }

@@ -32,9 +32,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	path := os.Args[len(os.Args)-2]
+
 	// Point to your migration files. Here we're using local files, but it could be other sources.
 	m, err := migrate.NewWithDatabaseInstance(
-		"file://user/migrations",
+		"file://"+path,
 		"postgres",
 		driver,
 	)

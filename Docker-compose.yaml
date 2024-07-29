@@ -7,6 +7,7 @@ services:
       - '8081:8081'
     environment:
       DB_HOST: db-user
+      NATS_ADDR: nats:4222
       KAFKA_ADDR: kafka:9093
     depends_on:
       - db-user
@@ -19,6 +20,7 @@ services:
     env_file: ./transaction/.env
     environment:
       DB_HOST: db-transaction
+      NATS_ADDR: nats:4222
       KAFKA_ADDR: kafka:9093
     ports:
       - '8082:8082'
@@ -28,31 +30,31 @@ services:
       - nats
     networks:
       - backend
-  db-transaction:
-    image: postgres
-    hostname: localhost
-    ports:
-      - '5432:5432'
-    environment:
-      postgres_user: admin
-      postgres_password: root
-      postgres_db: transaction
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
-    networks:
-      - backend
   db-user:
     image: postgres
     hostname: localhost
     ports:
       - '5432:5432'
     environment:
-      postgres_user: admin
-      postgres_password: root
-      postgres_db: user
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: user
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data-user:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - backend
+  db-transaction:
+    image: postgres
+    hostname: localhost
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: transaction
+    volumes:
+      - postgres-data-transaction:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
       - backend
@@ -90,4 +92,5 @@ networks:
   backend:
     driver: bridge
 volumes:
-  postgres-data:
+  postgres-data-user:
+  postgres-data-transaction:

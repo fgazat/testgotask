@@ -12,5 +12,5 @@ WORKDIR /root/
 COPY --from=builder /app/transaction-service .
 COPY --from=builder /app/.env .
 
-EXPOSE 8080
+EXPOSE 8082
 CMD ["./transaction-service"]
