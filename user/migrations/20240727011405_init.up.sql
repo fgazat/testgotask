@@ -1,5 +1,6 @@
 CREATE TABLE "user" (
-  user_id uuid PRIMARY KEY,
+  pk INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
+  user_id uuid UNIQUE NOT NULL,
   email VARCHAR(70) UNIQUE NOT NULL,
   created_at timestamp NOT NULL DEFAULT NOW ()
 );

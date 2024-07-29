@@ -1,34 +1,61 @@
 version: '3.8'
 services:
-  users:
+  user:
     build: ./user
     env_file: ./user/.env
     ports:
       - '8081:8081'
     environment:
-      DB_HOST: db
+      DB_HOST: db-user
       KAFKA_ADDR: kafka:9093
     depends_on:
-      - db
+      - db-user
       - kafka
       - nats
     networks:
       - backend
-  db:
+  transaction:
+    build: ./transaction
+    env_file: ./transaction/.env
+    environment:
+      DB_HOST: db-transaction
+      KAFKA_ADDR: kafka:9093
+    ports:
+      - '8082:8082'
+    depends_on:
+      - db-transaction
+      - kafka
+      - nats
+    networks:
+      - backend
+  db-transaction:
     image: postgres
     hostname: localhost
     ports:
       - '5432:5432'
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: root
-      POSTGRES_DB: test_db
+      postgres_user: admin
+      postgres_password: root
+      postgres_db: transaction
     volumes:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
       - backend
-
+  db-user:
+    image: postgres
+    hostname: localhost
+    ports:
+      - '5432:5432'
+    environment:
+      postgres_user: admin
+      postgres_password: root
+      postgres_db: user
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - backend
   nats:
     image: nats
     ports:
@@ -36,7 +63,6 @@ services:
     command: '--cluster_name NATS --cluster nats://0.0.0.0:6222 --http_port 8222'
     networks:
       - backend
-
   zookeeper:
     image: wurstmeister/zookeeper:latest
     ports:
@@ -60,16 +86,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - backend
-
-  # transactions:
-  #   build: ./transactions
-  #   env_file: ./transactions/.env
-  #   ports:
-  #     - "8082:8082"
-  #   depends_on:
-  #     - db
-  #   networks:
-  #     - mynetwork
 networks:
   backend:
     driver: bridge

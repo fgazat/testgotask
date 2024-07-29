@@ -1,14 +1,16 @@
 package main
 
 import (
+	"database/sql"
+	"fmt"
 	"log"
 	"os"
 
-	"github.com/fgazat/testgotask/db"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -20,7 +22,7 @@ func main() {
 	dbPass := os.Getenv("DB_PASS")
 	dbName := os.Getenv("DB_NAME")
 	dbPort := os.Getenv("DB_PORT")
-	db, err := db.New(dbName, dbUser, dbPass, dbHost, dbPort)
+	db, err := NewStore(dbName, dbUser, dbPass, dbHost, dbPort)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,4 +58,29 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+}
+
+func NewStore(
+	dbname string,
+	dbuser string,
+	dbpassword string,
+	dbhost string,
+	dbport string,
+) (*sql.DB, error) {
+	connString := fmt.Sprintf(
+		"user=%s password=%s dbname=%s host=%s port=%s sslmode=disable",
+		dbuser,
+		dbpassword,
+		dbname,
+		dbhost,
+		dbport,
+	)
+	db, err := sql.Open("postgres", connString)
+	if err != nil {
+		return nil, err
+	}
+	if err = db.Ping(); err != nil {
+		return nil, err
+	}
+	return db, nil
 }

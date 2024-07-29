@@ -4,12 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
 type Storage interface {
 	CreateUser(user *User) error
-	GetUserByEmail(email string) (*User, error)
+	GetUser(uuid uuid.UUID) (*User, error)
 }
 
 type PostgresStore struct {
