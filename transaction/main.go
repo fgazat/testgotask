@@ -13,7 +13,6 @@ import (
 )
 
 func main() {
-	log.Println("hello")
 	dbHost := os.Getenv("DB_HOST")
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASS")
@@ -60,6 +59,7 @@ func newDB(
 		dbhost,
 		dbport,
 	)
+	log.Println(connString)
 	db, err := sql.Open("postgres", connString)
 	if err != nil {
 		return nil, err

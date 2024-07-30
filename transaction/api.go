@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -50,32 +49,172 @@ func (s *APIServer) Run() {
 }
 
 func (s *APIServer) HandleAddMoney(w http.ResponseWriter, r *http.Request) {
-	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Supported method: POST\n"))
+		return
+	}
+	var transaction Transaction
+	if err := json.NewDecoder(r.Body).Decode(&transaction); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
+	idempotencyKey := uuid.New()
+	updated, err := addBalance(s.db, transaction.UserID, transaction.Amount, idempotencyKey)
+	if err != nil {
+		log.Printf("err while trying to add money: %v", err)
+		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+
+	}
+	result := map[string]int64{
+		"updated_balance": updated,
+	}
+	jsonData, err := json.Marshal(result)
+	if err != nil {
+		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
+}
+
+func addBalance(db *sql.DB, userID uuid.UUID, amount int64, idempotencyKey uuid.UUID) (int64, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var processed bool
+	err = tx.QueryRow("SELECT processed FROM transaction WHERE idempotency_key = $1;", idempotencyKey).Scan(&processed)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	if processed {
+		return 0, fmt.Errorf("operation is already processed")
+	}
+
+	var balance int64
+	err = tx.QueryRow(`SELECT balance FROM "user" WHERE user_id = $1 FOR UPDATE;`, userID).Scan(&balance)
+	if err != nil {
+		return 0, err
+	}
+	balance += amount
+	_, err = tx.Exec(`UPDATE "user" SET balance = $1 WHERE user_id = $2;`, balance, userID)
+	if err != nil {
+		return 0, err
+	}
+	_, err = tx.Exec(`INSERT INTO transaction (user_id, amount, idempotency_key, processed, event_timestamp) 
+VALUES ($1, $2, $3, $4, $5);`, userID, amount, idempotencyKey, true, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return balance, tx.Commit()
+}
+
+// { from_user_id: , to_user_id, amount_to_transfer
+func (s *APIServer) HandleTransferMoney(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Supported method: POST\n"))
+		return
+	}
+	var input struct {
+		FromUserID uuid.UUID `json:"from_user_id"`
+		ToUserID   uuid.UUID `json:"to_user_id"`
+		Amount     int64     `json:"amount_to_transfer"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if input.FromUserID == input.ToUserID || input.Amount == 0 {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	log.Println(input)
+
+	idempotencyKey := uuid.New()
+	if err := transferMoney(s.db, input.FromUserID, input.ToUserID, input.Amount, idempotencyKey); err != nil {
+		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// get from kafka
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Request processed successfully\n"))
 }
 
-func (s *APIServer) HandleTransferMoney(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
+type Wallet struct {
+	ID      int
+	Balance int
+	Version int
+}
+
+func transferMoney(db *sql.DB, fromID, toID uuid.UUID, amount int64, idempotencyKey uuid.UUID) error {
+	tx, err := db.Begin()
 	if err != nil {
-		http.Error(w, "Unable to read request body", http.StatusBadRequest)
-		return
+		return err
 	}
-	defer r.Body.Close()
+	defer tx.Rollback()
 
-	var user *User
-	if err := json.Unmarshal(body, &user); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
+	var processed bool
+	err = tx.QueryRow("SELECT processed FROM transaction WHERE idempotency_key = $1;", idempotencyKey).Scan(&processed)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if processed {
+		return fmt.Errorf("operation is already processed")
 	}
 
-	// get from kafka
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Request processed successfully\n"))
+	var fromUserBalance, toUserBalance int64
+	// Lock rows
+	err = tx.QueryRow(`SELECT balance FROM "user" WHERE user_id = $1 FOR UPDATE;`, fromID).Scan(&fromUserBalance)
+	if err != nil {
+		return err
+	}
+	err = tx.QueryRow(`SELECT balance FROM "user" WHERE user_id = $1 FOR UPDATE;`, toID).Scan(&toUserBalance)
+	if err != nil {
+		return err
+	}
+
+	if fromUserBalance < amount {
+		return fmt.Errorf("insufficient funds")
+	}
+	fromUserBalance -= amount
+	toUserBalance += amount
+
+	_, err = tx.Exec(`UPDATE "user" SET balance = $1 WHERE user_id = $2;`, fromUserBalance, fromID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`UPDATE "user" SET balance = $1 WHERE user_id = $2;`, toUserBalance, toID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`INSERT INTO transaction (
+    user_id, amount, idempotency_key, processed, event_timestamp
+) VALUES (
+    $1, $2, $3, $4, $5
+), (
+    $6, $7, $8, $4, $5
+) ;`,
+		fromID,
+		-amount,
+		idempotencyKey,
+		true,
+		time.Now(),
+		toID,
+		amount,
+		// FIXME — another table for transactions maybe?
+		uuid.New(),
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // nats
@@ -144,7 +283,7 @@ func (s *APIServer) ListendCreateUserRequests() {
 		}
 		_, err = s.db.Exec(
 			`INSERT INTO "user" (
-            user_id, email, created_at
+            user_id, balance, created_at
         ) VALUES (
             $1, $2, $3
         );`, user.UserID, user.Balance, user.CreatedAt)
@@ -152,6 +291,6 @@ func (s *APIServer) ListendCreateUserRequests() {
 			log.Printf("err creating user: %v", err)
 			continue
 		}
-		fmt.Printf("user %s created", user.UserID.String())
+		log.Printf("user %s created", user.UserID.String())
 	}
 }

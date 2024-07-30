@@ -44,6 +44,11 @@ func (s *APIServer) Run() {
 }
 
 func (s *APIServer) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Supported method: POST\n"))
+		return
+	}
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -92,6 +97,11 @@ func (s *APIServer) createUser(ctx context.Context, user *User) error {
 }
 
 func (s *APIServer) HandleBalance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Supported method: GET\n"))
+		return
+	}
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
