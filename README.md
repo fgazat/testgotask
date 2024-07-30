@@ -6,8 +6,7 @@
 # 1. Start docker container
 docker-compose up --build -d
 
-# 2. Install migrate CLI. It is not included to docker, because I like to
-# apply migrations manually for local dev.
+# 2. Install migrate CLI.
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 
 # 3. Apply migrations for user db.
