@@ -133,8 +133,6 @@ func (s *APIServer) HandleTransferMoney(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	log.Println(input)
-
 	idempotencyKey := uuid.New()
 	if err := transferMoney(s.db, input.FromUserID, input.ToUserID, input.Amount, idempotencyKey); err != nil {
 		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
