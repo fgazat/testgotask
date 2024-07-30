@@ -24,7 +24,7 @@ curl -X GET 0.0.0.0:8081/balance -d '{"email": "test@gmail.com"}'
 # Add_money
 curl -X POST 0.0.0.0:8082/add_money -d '{"user_id": "UUID", "amount": 14000}'
 # Transfer_money
-curl -X POST 0.0.0.0:8082/transfer_money -d '{"from_user_id": "UUID", "to_user_id": "UUID", "amount": 14000}'
+curl -X POST 0.0.0.0:8082/transfer_money -d '{"from_user_id": "UUID", "to_user_id": "UUID", "amount_to_transfer": 1500}'
 
 # Connection strings
 # user db
